@@ -91,7 +91,7 @@ library(xts)
 
 
 ```{r Load and Fix Data}
-FRED.Data = read.csv("AlchData.csv", header=TRUE)
+FRED.Data = read.csv("Data.csv", header=TRUE)
 #Looking at Data from Jan 1992 - Dec 2019
 AlchData = as.data.frame(FRED.Data[1:337, 2])
 names(AlchData)
@@ -103,7 +103,6 @@ Alchts = ts(AlchData, start=c(1992,01), end=c(2019,12), freq=12)
 t<-seq(1992, 2020,length=length(Alchts))
 
 ```
-
 
 
 ```{r Add Plot Settings}
@@ -162,7 +161,7 @@ I will answer (d) and (e) together for better space efficiency.
 
 Linear Fit
 ```{r Linear Fit, fig.height = 7.0}
-#Recall Time Series Object Goldts and Time Dummy Variable t
+#Recall Time Series Object Alchts and Time Dummy Variable t
 
 #Linear Fit 
 m1=lm(Alchts~t)
@@ -541,7 +540,7 @@ be be less precise. More importantly, the quadratic+periodic model is a great fi
 upward trend, but it also captures the small fluctuations and variations shown in the plot above. As a result, including the trend model from problem 
 1 will yield more precise prediction values.
 
-
+\newpage
 
 # IV. Conclusions and Future Work (state your conclusion regarding your final model and forecast, and provide some insight as to how it could be improved).
 
