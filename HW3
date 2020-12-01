@@ -1,0 +1,584 @@
+---
+title: "Homework 3 - Time Series"
+author: "Aaron Harmetz"
+output:
+  pdf_document: 
+    toc: yes
+    toc_depth: 4
+  fig_caption: yes
+  highlight: haddock
+  number_sections: yes
+  df_print: paged
+  word_document:
+    toc: yes
+fontsize: 10.5pt
+editor_options: null
+chunk_output_type: console
+---
+
+##############
+# I. Introduction
+##############
+
+## Describe the data, provide some background on the topic, etc
+
+Beer and wine retail sales have been moving in an increasingly upward trajectory. Growing innovation in the beer and wine industry has allowed retailers 
+to provide a wider variety of products that can cater towards more consumers. For example, in the beer industry, the rise of micro-breweries entering retail 
+shelves, has produced widespread variety and quality. Retail shelves can show a range from hazy IPA's to kettle sours. Beers are becoming more flexible in 
+appealing towards consumers differing taste buds and pallets. In addition, people have the opportunity to buy beers that are not commercially mainstream. 
+The constant innovation and variety in the beer industry has led to greater qualities of beers produced from micro-breweries. Although beer and wine retail
+sales may have a form of predation in retail stores, there is no doubt that the beer and wine industry is growing upwards. This upward trajectory positively
+impacts the sales of their products in retail stores. 
+
+I will be exploring monthly retail sales: beer, wine, and liquor stores. My data is collected from the Federal Reserve Economic Data (FRED) | St. Louis Fed.
+My research will focus on observations from Jan 1992 to Dec 2019. Retail sales are measured in millions of dollars. The data is collected from a mail-out/mail
+back survey of about 13,000 retail businesses with paid employees. Around 2,500 of the 13,000 are selected with certainty. Monthly retail sales and inventories 
+estimates are released six weeks after the end of the referenced month. Estimates are both seasonally and unseasonally adjusted. 
+
+
+# II. Modeling and Forecasting Trend Results 
+
+Library
+```{r Library, warning=FALSE,message=FALSE}
+rm(list = ls())
+library(aTSA)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(tibble)
+# Load Libraries
+library("fImport")
+library(fOptions)
+#library(RQuantLib)
+library(nlstools)
+library(tseries)
+library(Quandl)
+library(zoo)
+library(PerformanceAnalytics)
+library(quantmod)
+library(car)
+library(FinTS)
+library(fOptions)
+library(forecast)
+require(stats)
+#library(stockPortfolio)
+library(vars)
+library(tseries, quietly = T)
+library(forecast, quietly = T)
+library(XML)
+library(fBasics)
+library(timsac)
+library(TTR)
+library(lattice)
+library(foreign)
+library(MASS)
+require(stats4)
+library(KernSmooth)
+library(fastICA)
+library(cluster)
+library(leaps)
+library(mgcv)
+library(rpart)
+require("datasets")
+require(graphics)
+library(RColorBrewer)
+library(xts)
+#library(stockPortfolio)
+```
+
+
+## (a) Show a time-series plot of your data
+
+
+```{r Load and Fix Data}
+FRED.Data = read.csv("AlchData.csv", header=TRUE)
+#Looking at Data from Jan 1992 - Dec 2019
+AlchData = as.data.frame(FRED.Data[1:337, 2])
+names(AlchData)
+#Change column name to AlchSale
+colnames(AlchData)[1] = "AlchSale"
+#Convert sales of beer, wine, and liquor stores to a Time Series Object
+Alchts = ts(AlchData, start=c(1992,01), end=c(2019,12), freq=12)
+#Create Time Series Dummy Variable 
+t<-seq(1992, 2020,length=length(Alchts))
+
+```
+
+
+
+```{r Add Plot Settings}
+#Plot Time Series Data 
+quartz()
+plot(Alchts, ylab="Millions of Dollars", xlab="Time",
+main="Retail Sales: Beer, Wine, and Liquor Store Time Series Plot", cex.main=1.0)
+#cex reduces size
+abline(h = mean(Alchts)) #creates a horizontal mean line 
+```
+
+
+## (b) Does your plot in (a) suggest that the data are covariance stationary? Explain your answer.
+
+The Retail Sales: Beer, Wine, and Liquor Stores time series plot is not covariance stationary. Covariance stationarity requires constant means, 
+constant variances, and time indepependent covariances. Looking at the plot, there is no indication of mean reversion. Although the seasonal
+factor causes the data to cross the mean more, the upward trend confirms that mean reversion does not exist.  In addition, the increasing trend
+with fluctuations in retail sales suggests that the data will not have constant variance over time. As a result, the monthly retail data for sales 
+of beer, wine, and liquor are not covariance stationary. 
+
+To double check my graphical conclusion of non-covariance stationary, I will use the Augmented Dickey-Fuller Test to test for stationarity.
+
+```{r adf test}
+#if p-value <= 0.01, data is stationary 
+adf.test(Alchts)
+```
+
+Since the p-value is not less than or equal to 0.01, I fail to reject the null hypothesis. There is no evidence that the data is stationary. 
+
+
+## (c) Plot and discuss the ACF and PACF of your data.
+
+```{r ACF PACF}
+#This will populate the time series plot with ACF and PACF
+tsdisplay(Alchts)
+#You can also use acf() or pacf() to capture the same results
+#acf(diff()) & pacf(diff()) will take the first differences
+```
+
+Although every lag looks significant, the interpretation needs to be made carefully. It would be misguided to conclude that the monthly sales of beer, wine,
+and liquor stores are significantly autocorrelated with all of the lagged variables. This ACF displays significance at every lag level since this month sales 
+is heavily correlated with the prediction of next month sales. Since it is difficult to draw solid conclusions from the ACF, I will use the PACF to find better
+results.
+
+The PACF of my data produces more interpretable results. We have a significant spike at lag 1, 12, and 13. This means that for predicting/forecasting,
+I will look at observations one month, 12 months, 13 months apart to capitalize on the significant auto-correlation found in this PACF. Significance at
+lag 1 is not surprising since looking at observations one month apart heavily influence sales. I speculate that lag 12 was found significant due to 
+observations one year apart having high correlation. Lastly, lag 13 is significant since it is close to the one year apart observations (lag12) and 
+is exactly one year away from lag 1.
+
+
+## (d&e) Fit a linear and nonlinear (e.g., polynomial, exponential, quadratic + periodic, etc.) model to your series. In one window, show both
+figures of the original times series plot with the respective fit. For each model, plot the respective residuals vs. fitted values and discuss your observations.
+
+I will answer (d) and (e) together for better space efficiency.
+
+Linear Fit
+```{r Linear Fit, fig.height = 7.0}
+#Recall Time Series Object Goldts and Time Dummy Variable t
+
+#Linear Fit 
+m1=lm(Alchts~t)
+par(mfrow=c(2,1))
+#Original Time Series Plot
+plot(Alchts,ylab="Monthly Price of Retail Sales", xlab="Time", lwd=2, 
+main="Time Series Plot with Linear Fit")
+#Add fitted values to plot
+lines(t,m1$fit,col="red3",lwd=2) 
+legend("topleft", c("Original Plot", "Linear Fit"),
+fill=c("black", "red"), cex=0.7)
+#Residual Plot 
+plot(m1$fit,m1$res, ylab="Residuals",xlab="Fitted Values",
+main="Linear Fit: Residuals vs. Fitted Values")
+abline(h = mean(m1$residuals)) #creates a horizontal mean line 
+```
+
+This model is decent in capturing the trend of the data. The fitted observations from the linear fit follow an accurate upward trend. 
+Looking at the residual vs. fitted values, the mean of the residuals is close to 0. A good forecasting model will yield residuals with a zero mean. 
+On the otherhand, I cannot identify whether the residuals are uncorrelated visually. In addition, this model does not have constant variance.
+The residuals moving forward grow in variance. In addition, there are high value residuals that are most likely influenced by high end of season 
+retail sales. The non-constant variance makes it difficult to estimate the true standard deviation of the forecast errors. This can lead to too 
+wide or too narrow confidence intervals. In addition, adding additional variables that can explain the monthly sales of beer, wine, and liquor 
+stores can reduce the amount of variation in this model. Overall, using this model to forecast monthly sales would not yield the best results. 
+Other models should be examined and compared to this model. 
+
+\newpage
+
+Log Linear Fit
+```{r Log Linear Fit, fig.height = 6}
+#Linear Log Fit  
+m2=lm(log(Alchts) ~ t)  
+par(mfrow=c(2,1))
+#Original Time Series Plot 
+plot(log(Alchts),ylab="Log Monthly Price of Retail Sales", xlab="Time", lwd=2,
+     main="Time Series Plot with Linear Log Fit")
+#Add fitted values to plot
+lines(t,m2$fit,col="red3",lwd=2)
+legend("topleft", c("Original Log Plot", "Linear Log Fit"),
+fill=c("black", "red"), cex=0.7)
+#Residual Plot
+plot(m2$fit,m2$res, ylab="Residuals", 
+main="Linear Log Fit: Residuals vs. Fitted Values",xlab="Fitted Values")
+abline(h = mean(m2$residuals)) #creates a horizontal mean line 
+
+```
+
+\newpage
+
+This model is decent in capturing the trend of the data. The fitted observations from the linear fit follow an accurate upward trend. Looking at 
+the residual vs. fitted values, the mean of the residuals is close to 0. A good forecasting model will yield residuals with a zero mean. On the 
+otherhand, I cannot identify whether the residuals are uncorrelated visually. Although there is better variance in this model, the high value 
+residuals confirm against constant variance. Those residuals values can be attributed to the seasonal effect on retail sales at the end of each year.
+The non-constant variance makes it difficult to estimate the true standard deviation of the forecast errors. Overall, using this model to forecast 
+monthly sales would yield stronger results than model 1, due to its better variance. 
+
+\newpage
+
+Quadratic + Periodic Fit
+```{r Quadratic and Periodic Fit, fig.height = 5.5}
+#Create sin and cos of t
+sin.t<-sin(2*pi*t)
+cos.t<-cos(2*pi*t)
+#Quadratic + Periodic Fit 
+m3 = lm(Alchts~t+I(t^2)+sin.t+cos.t)
+par(mfrow=c(2,1))
+#Original Time Series Plot
+plot(Alchts, ylab="Monthly Price of Retail Sales", xlab="Time", lwd=2,
+main="Time Series Plot with Quadratic+Periodic Fit")
+#Add fitted values to plot 
+lines(t,m3$fit,col="red3",lwd=2)
+legend("topleft", c("Original Plot", "Quadratic+Periodic Fit"),
+fill=c("black", "red"), cex=0.65)
+#Residual Plot
+plot(m3$fit,m3$res, ylab="Residuals",xlab="Fitted Values",
+main="Quadratic+Periodic Fit: Residuals vs. Fitted Values")
+abline(h = mean(m3$residuals)) #creates a horizontal mean line 
+
+```
+
+\newpage
+
+
+This model provides interesting results. The fitted observations from the quadratic + periodic fit visually captures more fluctuations in sale 
+changes than model 1 and model 2. Looking at the residual vs. fitted values, the mean of the residuals is close to 0. A good forecasting model 
+will yield residuals with a zero mean. On the otherhand, I cannot identify whether the residuals are uncorrelated visually. This model does 
+not have constant variance. This can be possibly influenced from peak retail sales in end of seasons. The non-constant variance makes it 
+difficult to estimate the true standard deviation of the forecast errors. This can lead to too wide or too narrow confidence intervals. 
+In addition, adding additional variables that can explain the monthly sales of beer, wine, and liquor stores can reduce the amount of variation 
+in this model. Overall, using this model to forecast monthly sales would not yield the best results, despite the visual appeal of the fitted values. 
+
+
+## (f) For each model, plot a histogram of the residuals and discuss your observations.
+
+```{r Histogram m1}
+#Histogram m1 residuals - Liner Fit
+hist(m1$res, breaks="FD", xlab="Residuals", ylab="Frequency",
+main="Linear Fit Residuals Histogram", col="skyblue1", freq=FALSE)
+#Add density line
+lines(density(m1$res), lwd=2, col="red")
+
+```
+
+
+The linear fit histogram residuals are somewhat normally distributed. There is a positive skew in the histogram that prevents the residuals from 
+being more normally distributed. The density line layered on the histogram further proves this. The linear fit residuals look more constant than
+the residual vs. fitted plot. Looking at the histogram, a large majority of the residuals are centered around 0. 
+
+```{r Histogram m2}
+#Histogram m2 residuals - Linear Log Fit
+hist(m2$res, breaks="FD", xlab="Residuals", ylab="Frequency",
+main="Linear Log Fit Residuals Histogram", col="skyblue1", freq=FALSE)
+#Add density line
+lines(density(m2$res), lwd=2, col="red")
+```
+
+The linear log fit histogram residuals are not normally distributed and have a  positive skew to the right. The density line layered 
+on the histogram further proves this. Interestingly, the residuals look less normally distributed than model 1. It is important to note
+that the scale of the residuals are a lot smaller for this model than model 1. Although the residuals are centered around 0, it is difficult
+to conclude constant variance from this scale and histogram. It requires looking at other residual plots to confirm constant variance.
+
+\newpage
+
+```{r Histogram m3}
+#Histogram m3 residuals - Quadratic + Periodic Fit 
+hist(m3$res, breaks="FD", xlab="Residuals", ylab="Frequency", 
+main="Quadratic + Periodic Fit Residuals Histogram", col="skyblue1", freq=FALSE)
+#Add density line 
+lines(density(m3$res), lwd=2, col="red")
+```
+
+
+The quadratic+periodic fit histogram residuals are not normally distributed and have a positive skew. The density line layered on the
+histogram further proves this. Despite many residuals centered around 0, there are a variety of residuals that are not centered around 0. 
+As a result, this histogram shows non-constant variance. 
+
+\newpage
+
+## (g) For each model, discuss the associated diagnostic statistics (R2, t-distribution, F-distribution, etc.)
+
+Model 1 - Linear Fit (m1)
+
+```{r m1 summary}
+summary(m1)
+```
+
+Not surprisingly, the time variable is significantly different from 0, so the time variable is a helpful predictor for monthly retail sales of beer, 
+wine, and liquor stores. The large t value indicates a small p-value, which means time dummy variable t, is significant for the monthly sales. 
+The F-statistic has a significant p-value, indicating that the time summary variable is significant. The Adjusted R-squared is 0.8219. 
+The Adjusted R-squared results need to be interpreted carefully in time series data.
+Comparing the R-squared results with the residual plots, the adjusted R-squared represents a fair indication of model fit  
+As a result, this model will be fair in predicting monthly sales of beer, wine, and liquor stores. I am hesitant to conclude
+this model as good or great, due to its variance in residuals and its lack of robustness in capturing more of the data's trend.
+
+\newpage
+
+Model 2 - Linear Log Fit (m2)
+
+```{r m2 summary}
+summary(m2)
+```
+
+The time variable is significantly different from 0, so the time variable is a helpful predictor for monthly retail sales of beer, wine, and liquor stores. 
+The large t value indicates a small p-value, which means time dummy variable t, is significant for the monthly sales. The F-statistic has a
+significant p-value, indicating that the time summary variable is significant. The Adjusted R-squared is 0.877.
+The Adjusted R-squared results need to be interpreted carefully in time series data.
+Comparing the R-squared results with the residual plots, R-squared represents a fair indication of model fit.
+As a result, this model will be fair in predicting monthly sales of beer, wine, and liquor stores. I am hesitant to conclude this model as good or great, 
+due to its lack of robustness in capturing more of the data's trend.
+
+\newpage
+
+Model 3 - Quadratic + Periodic (m3)
+
+```{r}
+summary(m3)
+```
+
+The time variable is significantly different from 0, so the time variable is a helpful predictor for monthly retail sales of beer, wine, and liquor stores. 
+The large t value indicates a small p-value, which means time dummy variable t, is significant for the monthly sales.
+The F-statistic has a significant p-value, indicating that the time summary variable is significant. Sin.t is significant while cos.t is not significant. 
+The Adjusted R-squared is 0.8625. The Adjusted R-squared results need to be interpreted carefully in time series data.
+Comparing the R-squared results with the residual plots, R-squared represents a fair indication of model fit 
+As a result, this model will be fair in predicting monthly sales of beer, wine, and liquor stores. I am hesitant to 
+conclude this model as good or great, due to its variance in residuals.
+
+\newpage
+
+## (h) Select a trend model using AIC and one using BIC (show the values obtained from each criterion). Do the selected models agree?
+
+```{r AIC and BIC}
+#The Akaike Information Criterion
+AIC(m1,m2,m3)
+#The Bayesian Information Criterion
+BIC(m1,m2,m3)
+```
+
+Ignoring model 2, due to its deflated AIC and BIC value from having a linear log fit, the best trend model is model 3 - quadratic + periodic fit.
+Under the assumption I made above, the selected models agree, but none of the models perfectly capture trend. Any model selected will have 
+shortcomings in predicting future monthly sales of beer, wine, and liquor stores. The best characteristic from model 3, is its ability to 
+fit a stronger fit to the data, in comparison to the other two models. Model 3's biggest issue, outside of omitted variables, is non-constant
+variance. Overall, I decide to use model 3, since its fit best represents the trend of the data, compared to the other two models.
+
+
+## (i) Use your preferred model to forecast h-steps (at least 16) ahead. Your forecast should include the respective uncertainty 
+prediction interval. Depending on your data, h will be in days, months, years, etc.
+
+Preferred Model: Model 3 (m3): lm(Alchts ~ t+I(t^2)+sin(2 * pi * t)+cos(2 * pi * t)
+
+```{r Predict}
+#Create data frame for desired time prediction 
+tn=data.frame(t=seq(2020,2022,by=1/12)) #by 1/12 closest estimate to monthly
+#Prediction Values (short cut to predicting values)
+pred=predict(lm(Alchts ~ t+I(t^2)+sin(2*pi*t)+cos(2*pi*t)), tn, se.fit = TRUE)
+
+#Create uncertainty prediction interval
+pred.plim = predict(lm(Alchts ~ t+I(t^2)+sin(2*pi*t)+cos(2*pi*t)),tn,
+level =0.95, interval="prediction")
+#Create confidence interval 
+pred.clim = predict(lm(Alchts ~ t+I(t^2)+sin(2*pi*t)+cos(2*pi*t)),
+tn,level=0.95, interval="confidence")
+#Use matplot function to create plot
+matplot(tn$t,cbind(pred.clim, pred.plim[,-1]), type="l", lwd=2,
+ylab="Predicted monthly price of retail sales",xlab="Time",
+main="Predicted monthly price of retail sales: Beer, Wine, Liquor Stores")
+#For matplot, 2020.0 = Jan 2020, 2020.5 = June 2020
+```
+
+\newpage
+
+# III. Modeling and Forecasting Seasonality Results 
+
+
+## (a) Construct and test (by looking at the diagnostic statistics) a model with a full set of seasonal dummies.
+
+```{r Full Set of Seasonal Dummies}
+#Use tslm to construct and test seasonality
+SeasonModel=tslm(Alchts ~ season) #tslm requires time base object 
+#Tslm will create season dummy variables based on the time base object 
+summary(SeasonModel)
+```
+
+
+## (b) Plot the estimated seasonal factors and interpret your plot.
+
+```{r Plot Seasonal Factors}
+SeasonDummy = tslm(Alchts ~ season+0) #exclude intercept and only look at
+#season dummy variables by adding +0 to season
+plot(SeasonDummy$coef,type='l',ylab='Seasonal Factors', xlab="Season",lwd=2,
+main="Plot of Seasonal Factors")
+```
+
+According to the plot of the seasonal factors coefficients, the monthly sales of beer, wine, and liquor stores are the highest in December.
+This makes plausible sense since the Christmas Holiday encourages higher consumption of beer and wine. Although this aspect makes sense,
+I am surprised to see that summer sales are not as high as end of year sales. This could be a result of consumers going to breweries and 
+wineries during a warmer and more favorable season. As a result, this would reduce retail sales compared to end of year retail sales.
+From January to end of year, there is a mostly constant upward trend for season factors.
+
+\newpage
+
+## (c) In order to improve your model, add the trend model from problem 1 to your seasonal model. We will refer to this model as the full model. 
+For the full model, plot the respective residuals vs. fitted values and discuss your observations.
+
+
+```{r Full Model Residual vs Fitted}
+#Trend Model 3 - m3 = lm(Alchts~t+I(t^2)+sin.t+cos.t) 
+#Season Model SeasonModel = tslm(Alchts~season)
+FullModel = tslm(Alchts~t+I(t^2)+sin.t+cos.t+season)
+#Residuals vs. Fitted Values 
+plot(FullModel$fit, FullModel$res, main="Residuals vs. Fitted Values",
+ylab="Residuals", xlab="Fitted Values")
+abline(h = mean(m1$residuals)) #creates a horizontal mean line 
+
+```
+
+Looking at the residual vs. fitted values, the mean of the residuals is close to 0. A good forecasting model will yield residuals with a zero mean. 
+Compared to model 1, model 2, model 3, and  SeasonalModel, this model displays the best constant variance. Although there are some residuals that
+deviate from the mean line, the majority of residuals are plotted around their constant mean. Constant variance makes it easier to estimate the true 
+standard deviation of the forecast errors. This can lead to more accurate confidence intervals. Using this model to forecast monthly sales of beer, 
+wine, and liquor stores would yield the best results, compared to the other models.
+
+
+## (d) Interpret the respective summary statistics including the error metrics of your full model.
+
+```{r Summary and error metric}
+summary(FullModel)
+mse = mean(FullModel$residuals^2) #Calculation for Mean Square Error 
+print(mse)
+rmse = sqrt(mse) #Calculation for Root Mean Square Error 
+print(rmse)
+```
+
+\newpage
+
+Similar to the previous models, the time dummy variable t and I(t^2) is very significant. On the otherhand, sin.t is insignificant while cos.t is significant. 
+All seasonal dummy variables are extremely significant, except season 3, which was considered somewhat significant. Combining the trend model with the seasonal
+model made all of the seasonal dummy variables significant. The adjusted R-squared is 0.9834. Although this value is extremely high, it can be inflated from 
+including the seasonal dummy variables. Looking at the residuals and summary statistics of this model demonstrates that this model has the highest precision 
+compared to the other competing models. 
+
+The Mean Square Error of the regression is 18,075.04. This error metric is  small comparatively to monthly sales measured in millions of dollars. 
+Compared to the other models, excluding the linear log linear fit, this model has the smallest mean square error. This demonstrates that the precision
+of this model is the highest compared to the other models. The only issue that arises is over fitting my model. My model may be over fitted to the
+original data, which can cause poor forecasting.
+
+
+## (e) Use the full model to forecast h-steps (at least 16) ahead. Your forecast should include the respective prediction interval.
+
+```{r Forecast Values and Predict Interval Plot}
+#use forecast function on ts/tslm object fitted values
+#h defines calculating months ahead 
+#level = 95% prediction interval
+Forecast_Values = forecast(FullModel$fitted.values, h=24, level =95)
+#Plot Prediction interval values 
+#Upper values
+plot(Forecast_Values$upper, col="red", main="95% Prediction Interval Values"
+, ylab="Predicted monthly price of retail sales")
+#Lower Values
+lines(Forecast_Values$lower, col="blue")
+legend("topleft", c("Upper Interval", "Lower Interval"),
+fill=c("red", "blue"), cex=0.7)
+```
+
+For x-axis Time interpretation
+
+2020.0 = Jan 2020
+
+2020.5 = June 2020
+
+\newpage
+
+```{r Forecast Full Plot}
+#Plot model with predicted values
+plot(Forecast_Values, main="Predicted Retail Sale:Beer, Wine, LiquorStores"
+, xlab="Time", ylab="Predicted montly price of retail sales")
+lines(Forecast_Values$fitted)
+```
+
+\newpage
+
+## (f) Plot the STL decomposition plot, and based on it, choose between an additive and multiplicative seasonal adjustment. Perform the correction, 
+and plot the seasonally adjusted series. Based on this adjustment, would your trend model from problem 1 stillbe appropriate? Explain your answer in detail.
+
+I will use a multiplicative seasonal adjustment since as time increases in magnitude, the seasonal variation increases as well.
+
+```{r Multiplicative Seasonal Adjustment}
+#STL decomposition plot. Will not plot if s.window is not defined
+#STL decomposition plot with the time series object Alchts 
+stl.Plot = plot(stl(Alchts, s.window="periodic"))
+
+#Adjust for multiplicative seasonality 
+
+#Decompose time series object Alchts - define inside as "multiplicative"
+decompose.Alchts = decompose(Alchts, "multiplicative")
+#Make adjustment
+adjust.season.Alchts = Alchts / decompose.Alchts$seasonal
+plot(adjust.season.Alchts, ylab="Monthly Retail Sales", main="Seasonally Adjusted Plot"
+,lwd = 2)
+
+
+#Note if choosing additive (subtract instrad of divide)
+#decompose.Alchts = decompose(Alchts, "additive")
+#adjust.season.Alchts = Alchts - decompose.Alchts$seasonal
+#plot(adjust_it, lwd = 2)
+
+```
+
+
+Based on this seasonal adjustment, my trend model from problem 1 would still be appropriate. 
+
+Trend Model: Model 3 (m3): lm(Alchts ~ t+I(t^2)+sin(2 * pi * t)+cos(2 * pi * t)
+
+The seasonal adjustment reduced the variation and fluctuations that previously existed in the time series data. Despite this, an upward trend exists in 
+the seasonally adjusted plot. If we omit a trend model and predict future monthly retail sales in beer, wine, and liquor stores, prediction values will
+be be less precise. More importantly, the quadratic+periodic model is a great fit for the seasonally adjusted plot. Not only does this fit capture an 
+upward trend, but it also captures the small fluctuations and variations shown in the plot above. As a result, including the trend model from problem 
+1 will yield more precise prediction values.
+
+
+
+# IV. Conclusions and Future Work (state your conclusion regarding your final model and forecast, and provide some insight as to how it could be improved).
+
+Providing a combination of a seasonal and trend model will forecast more precise prediction values than choosing a seasonal or trend model by itself. 
+When I combined the seasonal and trend model into FullModel in 2(c-d), all seasonal factors were highly significant. The seasonal plot demonstrated that 
+seasonal factors played a strong role in monthly retail sales of beer, wine, and liquor stores. The quadratic+periodic fit was a strong candidate since it 
+capture the upward trend and fluctuations in the seasonally adjusted plot. A multiplicative seasonal adjustment makes sense the beer and wine industry
+has grown drastically in the last 20-30 years. This would cause wider fluctuations in retail prices. 
+
+The forecasts are very limited in scope. For example, the monthly retail sales in 2020 did not have any fluctuations. Rather, there is a sharp linear
+increase in monthly retail sales. According to FRED, alcohol consumption has increased drastically since the inception of the pandemic. The predicted 
+values for both trend and trend+seasonal failed to capture this change. Of course, this is very difficult to capture with a model that does not constantly
+update the most recent data. In addition, there are other variables that can help explain and predict the monthly sales of beer, wine, and liquor stores. 
+I would recommend updating the data with the most recent data changes in FRED. Additionally, adding other variables can increase the robustness of the model,
+reduce the variance, and increase more precise prediction values. 
+
+This work can be further improved with a ARIMA model. ARIMA models allow both autoregressive (AR) components as well as moving average (MA) components.
+The issue with my models were their construction through guessing and estimation. There is no doubt that ARIMA can produce a model that is more robust
+and precise. ARIMA models can prevent overfiting while being flexible enough to capure some type of relationship of the data. Of course, implementing 
+more complex models than ARIMA would yield better  predictions and results for this project. The biggest takeaway issue from this assignment is using 
+simple methods to model and predict monthly sales of my data.
+
+
+# V. References (include the source of your data and any other resources).
+
+Source of Data: Federal Reserve Economic Data (FRED) | St. Louis: 
+
+Retail Sales: Beer, Wine, and Liquor Stores (MRTSSM4453USN)
+
+https://fred.stlouisfed.org/series/MRTSSM4453USN
+
+
+About Monthly Retail Sales Data Collection:
+
+https://www.census.gov/retail/mrts/about_the_surveys.html
+
+
+Covid and Alcohol:
+
+https://www.nielsen.com/us/en/insights/article/2020/rebalancing-the-covid-19-effect-on-alcohol-sales/
